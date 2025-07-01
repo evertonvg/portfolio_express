@@ -1,23 +1,6 @@
 version: '3.9'
 
 services:
-  api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: portfolio-backend
-    ports:
-      - "3333:3333"
-      - "5555:5555"    # sua API
-    env_file:
-      - .env
-    volumes:
-      - .:/app
-    depends_on:
-      - mysql
-    networks:
-      - devnet
-
   mysql:
     image: mysql:8.0
     container_name: mysql-db
@@ -29,9 +12,8 @@ services:
       MYSQL_DATABASE: devdb
       MYSQL_USER: user
       MYSQL_PASSWORD: password
-    networks:
-      - devnet
+    volumes:
+      - mysql-data:/var/lib/mysql
 
-networks:
-  devnet:
-    driver: bridge
+volumes:
+  mysql-data:

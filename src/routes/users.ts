@@ -26,6 +26,11 @@ const userCreateSchema = z.object({
     .default(true),
 });
 
+const loginSchema = z.object({
+  emailOrName: z.string().min(1, 'Email ou nome é obrigatório'),
+  password: z.string().min(1, 'Senha é obrigatória'),
+});
+
 // Config multer para upload de imagem
 const storage = multer.diskStorage({
   destination: (req, _file, cb) => {
@@ -98,12 +103,18 @@ router.post('/create', upload.single('image'), async (req: Request, res: Respons
 
 // ROTA PÚBLICA - Login (gera JWT)
 router.post('/login', async (req: Request, res: Response) => {
+  console.log('Dados recebidos no login:', req.body);
   try {
-    const { emailOrName, password } = req.body;
-    if (!emailOrName || !password) {
-      return res.status(400).json({ error: 'Email ou nome e senha são obrigatórios' });
+    // 1. Validação de entrada
+    const parsed = loginSchema.safeParse(req.body);
+    if (!parsed.success) {
+      const message = parsed.error.errors[0].message;
+      return res.status(400).json({ error: message });
     }
 
+    const { emailOrName, password } = parsed.data;
+
+    // 2. Buscar usuário pelo nome ou email
     const user = await prisma.user.findFirst({
       where: {
         OR: [
@@ -113,32 +124,42 @@ router.post('/login', async (req: Request, res: Response) => {
       },
     });
 
-    if (!user) {
-      return res.status(401).json({ error: 'Usuário não encontrado' });
+    // 3. Verificação genérica para evitar dar pistas
+    if (!user || !(await bcrypt.compare(password, user.password))) {
+      console.warn(`Tentativa de login inválido de IP ${req.ip} com identificador: ${emailOrName}`);
+      return res.status(401).json({ error: 'Credenciais inválidas' });
     }
 
-    const passwordMatch = await bcrypt.compare(password, user.password);
-    if (!passwordMatch) {
-      return res.status(401).json({ error: 'Senha incorreta' });
+    // 4. Verificar se o JWT_SECRET está definido
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) {
+      console.error('JWT_SECRET não está definido no .env');
+      return res.status(500).json({ error: 'Erro de configuração no servidor' });
     }
 
+    // 5. Gerar token JWT
     const token = jwt.sign(
       { userId: user.id, name: user.name, email: user.email },
-      process.env.JWT_SECRET as string,
+      jwtSecret,
       { expiresIn: '1h' }
     );
 
-    const { password: _password, ...userWithoutPassword } = user;
-    return res.json({ user: userWithoutPassword, token });
+    // 6. Retornar usuário (sem senha) e token
+    const { password: _, ...userWithoutPassword } = user;
+
+    return res.status(200).json({
+      user: userWithoutPassword,
+      token: `Bearer ${token}`,
+    });
   } catch (error) {
-    console.error(error);
-    return res.status(500).json({ error: 'Erro ao autenticar usuário' });
+    console.error('Erro interno ao autenticar:', error);
+    return res.status(500).json({ error: 'Erro interno ao autenticar usuário' });
   }
 });
 
 // Middleware para proteger as rotas abaixo
 router.use(authenticateToken);
-
+ 
 // ROTA PROTEGIDA - Listar todos usuários (sem senha)
 router.get('/', async (_req: Request, res: Response) => {
   try {
