@@ -11,7 +11,7 @@ import { authenticateToken } from '../middleware/auth';
 
 const router = Router();
 
-// Schema Zod para criação de usuário
+// Schema Zod para criação de usuário 
 const userCreateSchema = z.object({
   name: z.string().min(1, 'Nome é obrigatório'),
   email: z.string().email('Email inválido'),
@@ -76,6 +76,14 @@ router.post('/create', upload.single('image'), async (req: Request, res: Respons
       return res.status(409).json({ error: 'Telefone já cadastrado com outro usuário' });
     }
 
+    // Busca a role 'normal'
+    const role = await prisma.role.findUnique({
+      where: { name: 'normal' },
+    });
+    if (!role) {
+      return res.status(500).json({ error: 'Role padrão não encontrada' });
+    }
+
     const hashedPassword = await bcrypt.hash(password, 10);
     const imagePath = req.file.path;
 
@@ -90,6 +98,9 @@ router.post('/create', upload.single('image'), async (req: Request, res: Respons
         password: hashedPassword,
         active,
         image: imagePath,
+        role: {
+          connect: { id: role.id },  // sempre conecta a role 'normal'
+        },
       },
     });
 
@@ -101,11 +112,11 @@ router.post('/create', upload.single('image'), async (req: Request, res: Respons
   }
 });
 
+
 // ROTA PÚBLICA - Login (gera JWT)
 router.post('/login', async (req: Request, res: Response) => {
   console.log('Dados recebidos no login:', req.body);
   try {
-    // 1. Validação de entrada
     const parsed = loginSchema.safeParse(req.body);
     if (!parsed.success) {
       const message = parsed.error.errors[0].message;
@@ -114,7 +125,7 @@ router.post('/login', async (req: Request, res: Response) => {
 
     const { emailOrName, password } = parsed.data;
 
-    // 2. Buscar usuário pelo nome ou email
+    // Buscar usuário pelo nome ou email, incluindo a role
     const user = await prisma.user.findFirst({
       where: {
         OR: [
@@ -122,40 +133,49 @@ router.post('/login', async (req: Request, res: Response) => {
           { name: emailOrName },
         ],
       },
+      include: {
+        role: true, // incluir a role para verificar
+      },
     });
 
-    // 3. Verificação genérica para evitar dar pistas
+    // Verificação básica de usuário e senha
     if (!user || !(await bcrypt.compare(password, user.password))) {
       console.warn(`Tentativa de login inválido de IP ${req.ip} com identificador: ${emailOrName}`);
       return res.status(401).json({ error: 'Credenciais inválidas' });
     }
 
-    // 4. Verificar se o JWT_SECRET está definido
+    // Verifica se o usuário é admin
+    if (user.role.name !== 'admin') {
+      return res.status(403).json({ error: 'Acesso negado. Apenas administradores podem logar.' });
+    }
+
+    // Verificar variável de ambiente
     const jwtSecret = process.env.JWT_SECRET;
     if (!jwtSecret) {
       console.error('JWT_SECRET não está definido no .env');
       return res.status(500).json({ error: 'Erro de configuração no servidor' });
     }
 
-    // 5. Gerar token JWT
+    // Gerar token JWT
     const token = jwt.sign(
-      { userId: user.id, name: user.name, email: user.email },
+      { userId: user.id, name: user.name, email: user.email, role: user.role.name },
       jwtSecret,
       { expiresIn: '1h' }
     );
 
-    // 6. Retornar usuário (sem senha) e token
+    // Retornar usuário sem senha e token
     const { password: _, ...userWithoutPassword } = user;
 
     return res.status(200).json({
       user: userWithoutPassword,
-      token: `Bearer ${token}`,
+      token: `${token}`,
     });
   } catch (error) {
     console.error('Erro interno ao autenticar:', error);
     return res.status(500).json({ error: 'Erro interno ao autenticar usuário' });
   }
 });
+
 
 // Middleware para proteger as rotas abaixo
 router.use(authenticateToken);

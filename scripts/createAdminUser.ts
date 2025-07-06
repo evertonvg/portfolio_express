@@ -1,10 +1,10 @@
-import prisma from '../src/prisma';
+import prisma from '../src/prisma'; // ajuste o caminho conforme seu projeto
 import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
 import bcrypt from 'bcrypt';
 
-// URL da imagem dummy
+// URL da imagem dummy admin
 const IMAGE_URL = 'https://png.pngtree.com/png-clipart/20230822/original/pngtree-anonymous-user-unknown-faceless-vector-picture-image_8173920.png';
 
 // Função para baixar a imagem e salvar localmente
@@ -24,22 +24,22 @@ async function downloadImage(url: string, dest: string) {
 }
 
 async function main() {
-  const userName = 'dummyuser';
+  const userName = 'admin';
+  const email = 'admin@example.com';
   const dir = path.join('uploads', 'users', userName);
   fs.mkdirSync(dir, { recursive: true });
   const imagePath = path.join(dir, 'dummy.png');
 
   // Baixa a imagem se não existir
   if (!fs.existsSync(imagePath)) {
-    console.log('Baixando imagem dummy...');
+    console.log('Baixando imagem dummy admin...');
     await downloadImage(IMAGE_URL, imagePath);
     console.log('Imagem salva em:', imagePath);
   } else {
-    console.log('Imagem dummy já existe localmente');
+    console.log('Imagem dummy admin já existe localmente');
   }
 
-  // Verifica se já existe usuário com email ou nome dummy
-  const email = 'dummyuser@example.com';
+  // Verifica se já existe usuário admin
   const existingUser = await prisma.user.findFirst({
     where: {
       OR: [{ email }, { name: userName }],
@@ -47,28 +47,46 @@ async function main() {
   });
 
   if (existingUser) {
-    console.log('Usuário dummy já existe no banco');
+    console.log('Usuário admin já existe no banco');
     process.exit(0);
   }
 
-  // Cria usuário dummy com senha "123456"
+  // Busca a role "admin"
+  const role = await prisma.role.findUnique({
+    where: { name: 'admin' },
+  });
+
+  if (!role) {
+    throw new Error('Role "admin" não encontrada. Rode o seed de roles primeiro.');
+  }
+
+  // Cria hash da senha
   const hashedPassword = await bcrypt.hash('123456', 10);
 
+  // Salva o caminho relativo da imagem para o banco
+  const relativeImagePath = path.join('uploads', 'users', userName, 'dummy.png').replace(/\\/g, '/');
+
+  // Cria usuário admin
   const user = await prisma.user.create({
     data: {
       name: userName,
       email,
       phone: '0000000000',
-      country: 'DummyLand',
-      state: 'DummyState',
-      city: 'DummyCity',
+      country: 'AdminLand',
+      state: 'AdminState',
+      city: 'AdminCity',
       password: hashedPassword,
       active: true,
-      image: imagePath,
+      image: relativeImagePath,
+      role: {
+        connect: {
+          id: role.id
+        }
+      }
     },
   });
 
-  console.log('Usuário dummy criado:', user);
+  console.log('Usuário admin criado:', user);
   process.exit(0);
 }
 

@@ -1,16 +1,24 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt, { JwtPayload } from 'jsonwebtoken';
 
+// Tipagem do payload esperado no token
+interface DecodedToken extends JwtPayload {
+  userId: number;
+  name: string;
+  email: string;
+}
+
+// Request extendida para incluir user tipado
 interface AuthRequest extends Request {
-  user?: string | JwtPayload;
+  user?: DecodedToken;
 }
 
 export function authenticateToken(req: AuthRequest, res: Response, next: NextFunction) {
-  const authHeader = req.headers.authorization;
+  const authHeader = req.headers;
+  const token = authHeader?.authorization;
 
-  const token = authHeader?.split(' ')[1];
   if (!token) {
-    return res.status(401).json({ error: 'Token não fornecido' });
+    return res.status(401).json({ error: 'Token não fornecido' }); 
   }
 
   jwt.verify(token, process.env.JWT_SECRET as string, (err, decoded) => {
@@ -18,7 +26,12 @@ export function authenticateToken(req: AuthRequest, res: Response, next: NextFun
       return res.status(403).json({ error: 'Token inválido' });
     }
 
-    req.user = decoded;
+    // Aqui garantimos que o decoded tem a tipagem correta
+    req.user = decoded as DecodedToken;
+
+    // Log para debug (remova em produção)
+    console.log('Usuário autenticado:', req.user);
+
     next();
   });
 }
